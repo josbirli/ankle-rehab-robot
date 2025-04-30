@@ -9,7 +9,7 @@ This repo includes the codebase of both python and android for RaspberryPi 3 Mod
 
 ## Test Environment
 
- - CachyOS (GNU/Linux).
+ - CachyOS (GNU/Linux) Kernel: 6.14.4-2-cachyos.
  - Python 3.13.3.
  - All Python packages are up to date as of 30.04.2025.
  - RaspberryPi 3 Model B+
