@@ -137,65 +137,87 @@ def main():
     c_thread.start()
 
     server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-    server_sock.bind(("", bluetooth.PORT_ANY))
-    server_sock.listen(1)
-    port = server_sock.getsockname()[1]
-    uuid = "00001101-0000-1000-8000-00805F9B34FB" # Standard SPP UUID
-    # ... inside main() before your advertise_service call
-    try:
-        print("Attempting minimal service advertisement for testing...")
-        # Ensure server_sock is bound and listening before this
-        bluetooth.advertise_service(
-            server_sock,
-            "TestBTService", # A simple name
-            service_id = uuid, # Your existing UUID
-            service_classes = [ uuid, bluetooth.SERIAL_PORT_CLASS ],
-            profiles = [ bluetooth.SERIAL_PORT_PROFILE ]
-            # provider = None, # Default
-            # description = None, # Default
-            # protocols = None # Default for SPP should be RFCOMM
-        )
-        print("Minimal service advertisement successful (or no immediate error).")
-    except Exception as e:
-        print(f"Error during minimal advertise_service test: {e}")
-    # Maybe exit or handle this before proceeding to the main advertise call
-# ... then your original advertise_service call
+    advertised = False
 
-    bluetooth.advertise_service(server_sock, "AnkleRobotPi",
-                               service_id=uuid,
-                               service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
-                               profiles=[bluetooth.SERIAL_PORT_PROFILE])
-    print(f"Waiting for Bluetooth connection on RFCOMM channel {port}")
-
-    active_client_thread = None
     try:
-        while True: # Keep accepting new connections if one drops
+        server_sock.bind(("", bluetooth.PORT_ANY))
+        server_sock.listen(1)
+        port = server_sock.getsockname()[1]
+        uuid = "00001101-0000-1000-8000-00805F9B34FB"
+
+        print(f"Attempting to advertise service on RFCOMM channel {port}")
+        bluetooth.advertise_service(server_sock, "AnkleRobotPi",
+                                   service_id=uuid,
+                                   service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
+                                   profiles=[bluetooth.SERIAL_PORT_PROFILE])
+        advertised = True
+        print(f"Service 'AnkleRobotPi' advertised on RFCOMM channel {port}")
+        print("Waiting for Bluetooth connection...")
+
+        active_client_thread = None
+        while True:
             if active_client_thread and active_client_thread.is_alive():
-                time.sleep(1) # Wait if a client is being handled
+                time.sleep(0.5) # Check less frequently
                 continue
 
-            client_sock, client_info = server_sock.accept()
+            # Consider adding a timeout to accept() if you want the main loop
+            # to be able to break on KeyboardInterrupt more readily while waiting
+            # server_sock.settimeout(1.0) # 1 second timeout
+            # try:
+            # client_sock, client_info = server_sock.accept()
+            # except bluetooth.btcommon.BluetoothError as e:
+            # if "timed out" in str(e).lower():
+            # continue # Go back to checking loop conditions
+            # else:
+            # raise # Re-raise other Bluetooth errors
+            # server_sock.settimeout(None) # Reset timeout
+
+            client_sock, client_info = server_sock.accept() # Blocking call
+            
+            # If a previous client thread finished, ensure it's joined before starting a new one
+            if active_client_thread and not active_client_thread.is_alive():
+                active_client_thread.join() # Clean up the finished thread resource
+
             active_client_thread = threading.Thread(target=client_communication_thread_func,
                                                     args=(client_sock, client_info, c_thread), daemon=True)
             active_client_thread.start()
+            print(f"Client {client_info} connected, handler thread started.")
+
+
     except KeyboardInterrupt:
-        print("\nShutting down server...")
+        print("\nShutting down server due to KeyboardInterrupt...")
+    except Exception as e:
+        print(f"An unexpected error occurred in main loop: {e}")
     finally:
-        if active_client_thread and active_client_thread.is_alive():
-            print("Waiting for client thread to finish...")
-            # You might need a more robust way to signal the client thread to stop
-            active_client_thread.join(timeout=2)
+        if advertised:
+            print("Stopping service advertisement...")
+            try:
+                bluetooth.stop_advertising(server_sock)
+                print("Service advertisement stopped.")
+            except Exception as e:
+                print(f"Error stopping advertisement: {e}")
+        
+        # Client thread cleanup logic might need improvement if KeyboardInterrupt happens
+        # while a client is connected and the thread is running.
+        # A more robust solution would involve signaling the client thread to stop.
+        if 'active_client_thread' in locals() and active_client_thread and active_client_thread.is_alive():
+            print("Attempting to clean up active client thread (may take a moment if blocked)...")
+            # This join might block if the client_communication_thread_func is stuck.
+            # Robustly stopping it would require an event or flag inside that thread.
+            active_client_thread.join(timeout=2) 
+            if active_client_thread.is_alive():
+                print("Warning: Client thread did not exit cleanly.")
+
 
         print("Stopping worker threads...")
-        s_thread.stop(); c_thread.stop()
-        s_thread.join(timeout=2); c_thread.join(timeout=2)
-        if not s_thread.is_alive(): print("SensorThread stopped.")
-        else: print("SensorThread did not stop gracefully.")
-        if not c_thread.is_alive(): print("ControlThread stopped.")
-        else: print("ControlThread did not stop gracefully.")
+        if 's_thread' in locals() and s_thread.is_alive(): s_thread.stop()
+        if 'c_thread' in locals() and c_thread.is_alive(): c_thread.stop()
+        if 's_thread' in locals(): s_thread.join(timeout=2)
+        if 'c_thread' in locals(): c_thread.join(timeout=2)
+        # ... (print thread stop status) ...
 
-        print("Closing Bluetooth socket...")
-        server_sock.close()
+        print("Closing Bluetooth server socket...")
+        if 'server_sock' in locals(): server_sock.close()
         print("Cleaning up GPIO...")
         hw.cleanup_gpio()
         print("Shutdown complete.")
