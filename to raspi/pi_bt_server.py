@@ -141,6 +141,25 @@ def main():
     server_sock.listen(1)
     port = server_sock.getsockname()[1]
     uuid = "00001101-0000-1000-8000-00805F9B34FB" # Standard SPP UUID
+    # ... inside main() before your advertise_service call
+    try:
+        print("Attempting minimal service advertisement for testing...")
+        # Ensure server_sock is bound and listening before this
+        bluetooth.advertise_service(
+            server_sock,
+            "TestBTService", # A simple name
+            service_id = uuid, # Your existing UUID
+            service_classes = [ uuid, bluetooth.SERIAL_PORT_CLASS ],
+            profiles = [ bluetooth.SERIAL_PORT_PROFILE ]
+            # provider = None, # Default
+            # description = None, # Default
+            # protocols = None # Default for SPP should be RFCOMM
+        )
+        print("Minimal service advertisement successful (or no immediate error).")
+    except Exception as e:
+        print(f"Error during minimal advertise_service test: {e}")
+    # Maybe exit or handle this before proceeding to the main advertise call
+# ... then your original advertise_service call
 
     bluetooth.advertise_service(server_sock, "AnkleRobotPi",
                                service_id=uuid,
